@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, 2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
 
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -94,7 +94,7 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 
 		if (data->payload_size < 2 * sizeof(uint32_t)) {
 			pr_err("%s: payload has invalid size %d\n",
-				__func__, data->payload_size);
+					__func__, data->payload_size);
 			return -EINVAL;
 		}
 
