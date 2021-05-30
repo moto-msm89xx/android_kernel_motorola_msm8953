@@ -19,6 +19,7 @@
 #include <linux/gfp.h>
 #include <linux/kernel.h>
 #include <linux/key.h>
+#include <linux/key.h>
 #include <linux/list.h>
 #include <linux/mempool.h>
 #include <linux/random.h>
@@ -40,6 +41,11 @@ static void ext4_dir_crypt_complete(struct crypto_async_request *req, int res)
 		return;
 	ecr->res = res;
 	complete(&ecr->completion);
+}
+
+bool ext4_valid_filenames_enc_mode(uint32_t mode)
+{
+	return (mode == EXT4_ENCRYPTION_MODE_AES_256_CTS);
 }
 
 static unsigned max_name_len(struct inode *inode)

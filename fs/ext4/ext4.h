@@ -204,6 +204,7 @@ struct ext4_io_submit {
 	struct bio		*io_bio;
 	ext4_io_end_t		*io_end;
 	sector_t		io_next_block;
+	struct inode		*io_crypt_inode;
 };
 
 /*
@@ -428,11 +429,11 @@ enum {
 	EXT4_INODE_APPEND	= 5,	/* writes to file may only append */
 	EXT4_INODE_NODUMP	= 6,	/* do not dump file */
 	EXT4_INODE_NOATIME	= 7,	/* do not update atime */
-/* Reserved for compression usage, co-opted for encryption usage */
+/* Reserved for compression usage... */
 	EXT4_INODE_DIRTY	= 8,
 	EXT4_INODE_COMPRBLK	= 9,	/* One or more compressed clusters */
 	EXT4_INODE_NOCOMPR	= 10,	/* Don't compress */
-	EXT4_INODE_ENCRYPT	= 11,	/* Encrypted */
+	EXT4_INODE_ENCRYPT	= 11,	/* Encrypted file */
 /* End compression flags --- maybe not all used */
 	EXT4_INODE_INDEX	= 12,	/* hash-indexed directory */
 	EXT4_INODE_IMAGIC	= 13,	/* AFS directory */
@@ -600,8 +601,7 @@ enum {
 #define EXT4_ENCRYPTION_MODE_AES_256_GCM	2
 #define EXT4_ENCRYPTION_MODE_AES_256_CBC	3
 #define EXT4_ENCRYPTION_MODE_AES_256_CTS	4
-#define EXT4_ENCRYPTION_MODE_SPECK128_256_XTS	7
-#define EXT4_ENCRYPTION_MODE_SPECK128_256_CTS	8
+#define EXT4_ENCRYPTION_MODE_PRIVATE		127
 
 #include "ext4_crypto.h"
 
@@ -2079,7 +2079,7 @@ int ext4_get_policy(struct inode *inode,
 
 /* crypto.c */
 extern struct kmem_cache *ext4_crypt_info_cachep;
-bool ext4_valid_enc_modes(uint32_t contents_mode, uint32_t filenames_mode);
+bool ext4_valid_contents_enc_mode(uint32_t mode);
 uint32_t ext4_validate_encryption_key_size(uint32_t mode, uint32_t size);
 extern struct workqueue_struct *ext4_read_workqueue;
 struct ext4_crypto_ctx *ext4_get_crypto_ctx(struct inode *inode,
@@ -2110,6 +2110,7 @@ static inline int ext4_sb_has_crypto(struct super_block *sb)
 #endif
 
 /* crypto_fname.c */
+bool ext4_valid_filenames_enc_mode(uint32_t mode);
 u32 ext4_fname_crypto_round_up(u32 size, u32 blksize);
 unsigned ext4_fname_encrypted_size(struct inode *inode, u32 ilen);
 int ext4_fname_crypto_alloc_buffer(struct inode *inode,
@@ -2157,12 +2158,20 @@ void ext4_free_encryption_info(struct inode *inode, struct ext4_crypt_info *ci);
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
 int ext4_has_encryption_key(struct inode *inode);
 
-int ext4_get_encryption_info(struct inode *inode);
-
 static inline struct ext4_crypt_info *ext4_encryption_info(struct inode *inode)
 {
 	return EXT4_I(inode)->i_crypt_info;
 }
+
+static inline int ext4_using_hardware_encryption(struct inode *inode)
+{
+	struct ext4_crypt_info *ci = ext4_encryption_info(inode);
+
+	return S_ISREG(inode->i_mode) && ci &&
+		ci->ci_data_mode == EXT4_ENCRYPTION_MODE_PRIVATE;
+}
+
+int ext4_get_encryption_info(struct inode *inode);
 
 #else
 static inline int ext4_has_encryption_key(struct inode *inode)
@@ -2176,6 +2185,10 @@ static inline int ext4_get_encryption_info(struct inode *inode)
 static inline struct ext4_crypt_info *ext4_encryption_info(struct inode *inode)
 {
 	return NULL;
+}
+static inline int ext4_using_hardware_encryption(struct inode *inode)
+{
+	return 0;
 }
 #endif
 
@@ -2365,8 +2378,7 @@ extern int ext4_search_dir(struct buffer_head *bh,
 			   struct ext4_filename *fname,
 			   const struct qstr *d_name,
 			   unsigned int offset,
-			   struct ext4_dir_entry_2 **res_dir,
-			   int flags);
+			   struct ext4_dir_entry_2 **res_dir);
 extern int ext4_generic_delete_entry(handle_t *handle,
 				     struct inode *dir,
 				     struct ext4_dir_entry_2 *de_del,
@@ -2814,8 +2826,7 @@ extern int ext4_da_write_inline_data_end(struct inode *inode, loff_t pos,
 					 struct page *page);
 extern int ext4_try_add_inline_entry(handle_t *handle,
 				     struct ext4_filename *fname,
-				     struct dentry *dentry,
-				     struct inode *inode);
+				     struct inode *dir, struct inode *inode);
 extern int ext4_try_create_inline_dir(handle_t *handle,
 				      struct inode *parent,
 				      struct inode *inode);
@@ -2831,8 +2842,7 @@ extern struct buffer_head *ext4_find_inline_entry(struct inode *dir,
 					struct ext4_filename *fname,
 					const struct qstr *d_name,
 					struct ext4_dir_entry_2 **res_dir,
-					int *has_inline_data,
-					int flags);
+					int *has_inline_data);
 extern int ext4_delete_inline_entry(handle_t *handle,
 				    struct inode *dir,
 				    struct ext4_dir_entry_2 *de_del,
@@ -3050,5 +3060,8 @@ extern int ext4_resize_begin(struct super_block *sb);
 extern void ext4_resize_end(struct super_block *sb);
 
 #endif	/* __KERNEL__ */
+
+#define EFSBADCRC	EBADMSG		/* Bad CRC detected */
+#define EFSCORRUPTED	EUCLEAN		/* Filesystem is corrupted */
 
 #endif	/* _EXT4_H */
